@@ -1,5 +1,18 @@
 (* ::Package:: *)
 
+(* ::Title:: *)
+(*Code for "Plethysm for characters of relative operads and PROPs" \[Dash] packaged code*)
+
+
+(* ::Author:: *)
+(*Najib Idrissi and Erik Lindell*)
+
+
+(* ::Affiliation:: *)
+(*Universit\[EAcute] Paris Cit\[EAcute] and Sorbonne Universit\[EAcute], CNRS, IMJ-PRG, F-75013 Paris, France.*)
+(*Institut for Matematiske Fag, K\[OSlash]benhavns Universitet, Universitetsparken 5, 2100 K\[OSlash]benhavn \[CapitalOSlash], Denmark.*)
+
+
 BeginPackage["Lambda`"]
 
 
