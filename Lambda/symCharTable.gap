@@ -3,6 +3,7 @@ storeSymmetricCharacterTable := function(n)
     c := CharacterTable("Symmetric", n);
     f := OutputTextFile(Concatenation("charTable_", String(n), ".wl"), false);
     SetPrintFormattingStatus(f, false);
+    PrintTo(f, "(* Produced by GAP ", GAPInfo.Version, " *)\n");
     PrintTo(f, "<|\n\"Classes\"->");
     PrintTo(f, "{", JoinStringsWithSeparator(List(CharacterParameters(c), x->Concatenation("{",JoinStringsWithSeparator(x[2]),"}"))), "},\n");
     PrintTo(f, "\"Table\"->");
