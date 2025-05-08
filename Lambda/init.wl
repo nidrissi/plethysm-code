@@ -5,12 +5,12 @@
 
 
 (* ::Author:: *)
-(*Najib Idrissi and Erik Lindell*)
+(*Najib Idrissi* and Erik Lindell***)
 
 
 (* ::Affiliation:: *)
-(*Universit\[EAcute] Paris Cit\[EAcute] and Sorbonne Universit\[EAcute], CNRS, IMJ-PRG, F-75013 Paris, France.*)
-(*Institut for Matematiske Fag, K\[OSlash]benhavns Universitet, Universitetsparken 5, 2100 K\[OSlash]benhavn \[CapitalOSlash], Denmark.*)
+(** Universit\[EAcute] Paris Cit\[EAcute] and Sorbonne Universit\[EAcute], CNRS, IMJ-PRG, F-75013 Paris, France.*)
+(*** Institut for Matematiske Fag, K\[OSlash]benhavns Universitet, Universitetsparken 5, 2100 K\[OSlash]benhavn \[CapitalOSlash], Denmark.*)
 
 
 BeginPackage["Lambda`"]
