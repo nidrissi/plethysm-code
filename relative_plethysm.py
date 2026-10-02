@@ -19,6 +19,12 @@ the Mathematica code. This module only adds:
   functions, i.e. to symmetric functions in several alphabets;
 - the computations of the paper.
 
+The tensor helpers work with tensor products of symmetric-function bases
+over a common coefficient ring. The grading helpers are specific to two
+alphabets, ordered as outputs then inputs; their degree is input arity minus
+output arity, not total arity. The character computations, LaTeX formatting,
+and storage use the fixed Schur tensor parent ``S2`` over ``QQ``.
+
 Symmetric functions in the alphabets `x` (outputs) and `y` (inputs) are the
 elements of ``S2 = tensor([s, s])``. As in Sage's documentation of
 ``plethysm``, `f(x)` and `f(y)` are the plethysms ``f(X)`` and ``f(Y)``::
@@ -34,13 +40,14 @@ from itertools import groupby
 from sage.all import QQ, SymmetricFunctions, Partition, Partitions, PolynomialRing, cached_function, prod, tensor
 from sage.calculus.functional import expand as sage_expand
 from sage.combinat.free_module import CombinatorialFreeModule_Tensor
+from sage.combinat.sf.sfa import SymmetricFunctionAlgebra_generic
 from sage.misc.latex import LatexExpr
 
 __all__ = ["Sym", "s", "h", "e", "p", "m", "S2", "X", "Y",
            "omega", "skew_by", "expand", "plethysm",
            "degree_part", "restrict_arity",
-           "chQ", "chP_upto", "chH_upto", "chP", "chH", "chQ_prime", "chP_prime", "chH_prime",
-           "print_poly", "save_chH_prime", "load_chH_prime"]
+           "chQ", "chP_upto_input_arity", "chH_upto_input_arity", "chP", "chH", "chQ_prime", "chP_prime", "chH_prime",
+           "character_latex", "save_chH_prime", "load_chH_prime"]
 
 Sym = SymmetricFunctions(QQ)
 s, h, e, p, m = Sym.s(), Sym.h(), Sym.e(), Sym.p(), Sym.m()
@@ -54,14 +61,28 @@ Y = tensor([s[[]], s[1]])
 
 def _tensor_factors(f):
     r"""
-    Return the tensor factors of the parent of ``f``, or ``None`` if ``f`` is
-    not an element of a tensor product.
+    Return the symmetric-function tensor factors of ``f``, or ``None`` for
+    all other objects, including tensors with nonsymmetric-function factors.
+
+    TESTS::
+
+        sage: _tensor_factors(tensor([s[1], h[2]])) == (s, h)
+        True
+        sage: _tensor_factors(int(0)) is None
+        True
+        sage: F = CombinatorialFreeModule(QQ, [0, 1])
+        sage: _tensor_factors(tensor([F.monomial(0), F.monomial(1)])) is None
+        True
+        sage: _tensor_factors(tensor([s[1], F.monomial(0)])) is None
+        True
     """
     if not hasattr(f, 'parent'):
         return None
     P = f.parent()
     if isinstance(P, CombinatorialFreeModule_Tensor):
-        return P.tensor_factors()
+        factors = P.tensor_factors()
+        if all(isinstance(B, SymmetricFunctionAlgebra_generic) for B in factors):
+            return factors
     return None
 
 
@@ -134,7 +155,14 @@ def expand(f, *args, **kwds):
     tensor factor is expanded in the variables ``a0, ..., a(n-1)`` where ``a``
     is ``alphabet[i]`` (by default, the alphabets are ``'xyz'``). It is
     ``view[n][f]`` in the Mathematica code. On anything else, this is Sage's
-    function ``expand``, which calls ``f.expand(*args, **kwds)``.
+    function ``expand``, which calls ``f.expand(*args, **kwds)`` when available
+    and otherwise returns ``f`` unchanged.
+
+    For a tensor, ``n`` is the number of variables in each alphabet, and
+    ``alphabet`` is a sequence of distinct prefixes, one per factor. For
+    example, ``alphabet=['out', 'in']`` uses ``out0, ..., out(n-1)`` and
+    ``in0, ..., in(n-1)``. For a single symmetric function, the meaning of
+    ``alphabet`` follows Sage's method instead.
 
     EXAMPLES::
 
@@ -148,6 +176,10 @@ def expand(f, *args, **kwds):
         t^2 + 2*t + 1
         sage: [expand(f) for f in (int(0), int(1), float(1.5))]
         [0, 1, 1.5]
+        sage: F = CombinatorialFreeModule(QQ, [0, 1])
+        sage: f = tensor([F.monomial(0), F.monomial(1)])
+        sage: expand(f, 2) is f
+        True
     """
     if _tensor_factors(f) is None:
         return sage_expand(f, *args, **kwds)
@@ -228,6 +260,10 @@ def degree_part(f, d):
     Return the part of ``f`` in degree `d`, i.e. the terms
     `s_\lambda(x) s_\mu(y)` with `|\mu| - |\lambda| = d`.
 
+    The input is a tensor of symmetric functions in two alphabets, ordered
+    as outputs then inputs. This is the paper's homological grading, not
+    total arity. The input basis and coefficient ring are preserved.
+
     This is ``coeff[d][𝓕[f, x, y]]`` in the Mathematica code: the regrading
     `\mathcal{F}` multiplies `s_\lambda(x) s_\mu(y)` by
     `(-\hbar)^{|\mu| - |\lambda|}`.
@@ -245,7 +281,9 @@ def restrict_arity(f, m=None, n=None, exact=True):
     Return the terms `s_\lambda(x) s_\mu(y)` of ``f`` with output arity
     `|\lambda| = m` and input arity `|\mu| = n`.
 
-    As for ``restrict_degree``, if ``exact`` is ``False`` then the terms with
+    The input is a tensor of symmetric functions in two alphabets, ordered
+    as outputs then inputs; its basis and coefficient ring are preserved.
+    If ``exact`` is ``False`` then the terms with
     `|\lambda| \leq m` and `|\mu| \leq n` are kept. If `m` or `n` is ``None``,
     the corresponding arity is not restricted.
 
@@ -322,15 +360,18 @@ def chQ(d):
 
 
 @cached_function
-def chP_upto(d, n):
+def chP_upto_input_arity(d, n):
     r"""
     Return the character of `\mathcal{P}` in degree `d`, up to input arity `n`.
+
+    The degree is exactly ``d``; only the input arity is bounded by ``n``.
+    The result belongs to ``S2`` over ``QQ``.
 
     TESTS:
 
     This agrees with the definition used in the Mathematica code::
 
-        sage: all(chP_upto(d, n) == restrict_arity(degree_part(sum(h[k](sum(chQ(l) for l in range(d + 1)))
+        sage: all(chP_upto_input_arity(d, n) == restrict_arity(degree_part(sum(h[k](sum(chQ(l) for l in range(d + 1)))
         ....:                                                     for k in range(n + 1)), d), n=n, exact=False)
         ....:     for d in range(3) for n in range(4))
         True
@@ -339,18 +380,21 @@ def chP_upto(d, n):
 
 
 @cached_function
-def chH_upto(d, n):
+def chH_upto_input_arity(d, n):
     r"""
     Return the character of `\mathcal{H}` in degree `d`, up to input arity `n`.
+
+    The degree is exactly ``d``; only the input arity is bounded by ``n``.
+    The result belongs to ``S2`` over ``QQ``.
 
     EXAMPLES:
 
     Compare ``Out[47]`` in the Mathematica notebook::
 
-        sage: print_poly(chH_upto(2, 5))
+        sage: character_latex(chH_upto_input_arity(2, 5))
         S_{3,41}^{\oplus 3} \oplus S_{3,32} \oplus S_{3,31^{2}}^{\oplus 6} \oplus S_{3,2^{2}1}^{\oplus 2} \oplus S_{3,21^{3}}^{\oplus 3} \oplus S_{21,41} \oplus S_{21,32}^{\oplus 5} \oplus S_{21,31^{2}}^{\oplus 7} \oplus S_{21,2^{2}1}^{\oplus 8} \oplus S_{21,21^{3}}^{\oplus 9} \oplus S_{21,1^{5}}^{\oplus 3} \oplus S_{1^{3},32}^{\oplus 2} \oplus S_{1^{3},31^{2}} \oplus S_{1^{3},2^{2}1}^{\oplus 6} \oplus S_{1^{3},21^{3}}^{\oplus 6} \oplus S_{1^{3},1^{5}}^{\oplus 5} \oplus S_{2,31}^{\oplus 3} \oplus S_{2,2^{2}} \oplus S_{2,21^{2}}^{\oplus 6} \oplus S_{2,1^{4}}^{\oplus 2} \oplus S_{1^{2},31} \oplus S_{1^{2},2^{2}}^{\oplus 4} \oplus S_{1^{2},21^{2}}^{\oplus 5} \oplus S_{1^{2},1^{4}}^{\oplus 5} \oplus S_{1,21}^{\oplus 3} \oplus S_{1,1^{3}}^{\oplus 4} \oplus S_{\varnothing,1^{2}}^{\oplus 2}
     """
-    return omega(chP_upto(d, n))
+    return omega(chP_upto_input_arity(d, n))
 
 
 @cached_function
@@ -367,7 +411,7 @@ def chP(d, m, n):
         sage: chP(2, 0, 2), chP(2, 1, 2)
         (2*s[] # s[2], 0)
     """
-    return restrict_arity(chP_upto(d, n), m, n)
+    return restrict_arity(chP_upto_input_arity(d, n), m, n)
 
 
 @cached_function
@@ -384,7 +428,7 @@ def chH(d, m, n):
         sage: for m in range(6):
         ....:     for n in range(6):
         ....:         if chH(2, m, n):
-        ....:             print(m, n, print_poly(chH(2, m, n)))
+        ....:             print(m, n, character_latex(chH(2, m, n)))
         0 2 S_{\varnothing,1^{2}}^{\oplus 2}
         1 3 S_{1,21}^{\oplus 3} \oplus S_{1,1^{3}}^{\oplus 4}
         2 4 S_{2,31}^{\oplus 3} \oplus S_{2,2^{2}} \oplus S_{2,21^{2}}^{\oplus 6} \oplus S_{2,1^{4}}^{\oplus 2} \oplus S_{1^{2},31} \oplus S_{1^{2},2^{2}}^{\oplus 4} \oplus S_{1^{2},21^{2}}^{\oplus 5} \oplus S_{1^{2},1^{4}}^{\oplus 5}
@@ -422,7 +466,7 @@ def chP_prime(d):
 
     Compare ``Out[50]`` in the Mathematica notebook::
 
-        sage: for d in range(1, 4): print(d, print_poly(chP_prime(d)))
+        sage: for d in range(1, 4): print(d, character_latex(chP_prime(d)))
         1 S_{1,2} \oplus S_{\varnothing,1}
         2 S_{2,4} \oplus S_{2,2^{2}} \oplus S_{1^{2},31} \oplus S_{1,3}^{\oplus 2} \oplus S_{1,21} \oplus S_{\varnothing,2}^{\oplus 2}
         3 S_{3,6} \oplus S_{3,42} \oplus S_{3,2^{3}} \oplus S_{21,51} \oplus S_{21,42} \oplus S_{21,321} \oplus S_{1^{3},41^{2}} \oplus S_{1^{3},3^{2}} \oplus S_{2,5}^{\oplus 2} \oplus S_{2,41}^{\oplus 2} \oplus S_{2,32}^{\oplus 2} \oplus S_{2,2^{2}1} \oplus S_{1^{2},5} \oplus S_{1^{2},41}^{\oplus 2} \oplus S_{1^{2},32}^{\oplus 2} \oplus S_{1^{2},31^{2}} \oplus S_{1,4}^{\oplus 4} \oplus S_{1,31}^{\oplus 3} \oplus S_{1,2^{2}}^{\oplus 2} \oplus S_{\varnothing,3}^{\oplus 3} \oplus S_{\varnothing,21}
@@ -459,7 +503,7 @@ def chH_prime(d):
     Compare ``Out[52]``--``Out[54]`` and ``Out[58]``--``Out[60]`` in the
     Mathematica notebook::
 
-        sage: for d in range(1, 4): print(d, print_poly(chH_prime(d), 'V'))
+        sage: for d in range(1, 4): print(d, character_latex(chH_prime(d), 'V'))
         1 V_{1,1^{2}} \oplus V_{\varnothing,1}
         2 V_{2,21^{2}} \oplus V_{1^{2},2^{2}} \oplus V_{1^{2},1^{4}} \oplus V_{1,21} \oplus V_{1,1^{3}}^{\oplus 2} \oplus V_{\varnothing,1^{2}}^{\oplus 2}
         3 V_{3,31^{3}} \oplus V_{3,2^{3}} \oplus V_{21,321} \oplus V_{21,2^{2}1^{2}} \oplus V_{21,21^{4}} \oplus V_{1^{3},3^{2}} \oplus V_{1^{3},2^{2}1^{2}} \oplus V_{1^{3},1^{6}} \oplus V_{2,31^{2}} \oplus V_{2,2^{2}1}^{\oplus 2} \oplus V_{2,21^{3}}^{\oplus 2} \oplus V_{2,1^{5}} \oplus V_{1^{2},32} \oplus V_{1^{2},2^{2}1}^{\oplus 2} \oplus V_{1^{2},21^{3}}^{\oplus 2} \oplus V_{1^{2},1^{5}}^{\oplus 2} \oplus V_{1,2^{2}}^{\oplus 2} \oplus V_{1,21^{2}}^{\oplus 3} \oplus V_{1,1^{4}}^{\oplus 4} \oplus V_{\varnothing,21} \oplus V_{\varnothing,1^{3}}^{\oplus 3}
@@ -483,19 +527,23 @@ def _partition_latex(la):
                     for part, mult in ((part, len(list(g))) for part, g in groupby(la)))
 
 
-def print_poly(f, sym='S'):
+def character_latex(f, sym='S'):
     r"""
     Return the character ``f`` as a direct sum of the irreducible
     representations `S_{\lambda,\mu} = S_\lambda \boxtimes S_\mu`, written in
     LaTeX.
 
+    The input is converted to the Schur tensor parent ``S2`` over ``QQ``.
+    Direct-sum notation assumes nonnegative integer multiplicities. The
+    result is a ``LatexExpr`` for display; this function does not print.
+
     The terms are sorted by decreasing `(|\lambda|, \lambda, |\mu|, \mu)`.
 
     EXAMPLES::
 
-        sage: print_poly(2 * h[2](X) * h[1](Y) + 1)
+        sage: character_latex(2 * h[2](X) * h[1](Y) + 1)
         S_{2,1}^{\oplus 2} \oplus S_{\varnothing,\varnothing}
-        sage: print_poly(S2.zero())
+        sage: character_latex(S2.zero())
         0
     """
     terms = sorted(S2(f), reverse=True,
@@ -517,17 +565,59 @@ def _partition_from_str(text):
     return Partition([] if text == "-" else [int(part) for part in text.split(",")])
 
 
+def _code_provenance():
+    """Return the source hash, Git HEAD, and source status when available."""
+    from hashlib import sha256
+    from pathlib import Path
+    from subprocess import CalledProcessError, run
+
+    source = Path(__file__).resolve()
+    checksum = sha256(source.read_bytes()).hexdigest()
+    git = ["git", "--no-optional-locks", "-C", str(source.parent)]
+    try:
+        run(git + ["ls-files", "--error-unmatch", "--", source.name],
+            check=True, capture_output=True, text=True)
+        head = run(git + ["rev-parse", "HEAD"],
+                   check=True, capture_output=True, text=True).stdout.strip()
+        status = run(git + ["status", "--porcelain", "--", source.name],
+                     check=True, capture_output=True, text=True).stdout.strip()
+    except (OSError, CalledProcessError):
+        return checksum, "unavailable", "unavailable"
+    return checksum, head, "modified" if status else "clean"
+
+
 def save_chH_prime(path, dmax, verbose=False):
     r"""
     Compute ``chH_prime(d)`` for `1 \leq d \leq` ``dmax`` and write it to the
     text file ``path``, one term `c \, s_\lambda(x) s_\mu(y)` per line.
+
+    The header records the SageMath version, coefficient field, basis,
+    degree range, SHA-256 of the source file, Git HEAD, and whether that
+    source differs from HEAD. Git fields are ``unavailable`` outside a
+    checkout or when Git is unavailable; the source hash is still recorded.
+    The file is replaced, and the characters are computed by this function.
+
+    TESTS::
+
+        sage: from tempfile import TemporaryDirectory
+        sage: from pathlib import Path
+        sage: with TemporaryDirectory() as directory:
+        ....:     path = Path(directory) / 'characters.txt'
+        ....:     save_chH_prime(path, 2)
+        ....:     stored = load_chH_prime(path)
+        ....:     print(stored == {d: chH_prime(d) for d in (1, 2)})
+        True
     """
     import sys
     import time
     from sage.version import version
+    checksum, head, status = _code_provenance()
     with open(path, "w") as out:
         out.write(f"# Produced by SageMath {version} with relative_plethysm.py\n"
-                  f"# Character of H'_d for 1 <= d <= {dmax}, in the Schur basis.\n"
+                  f"# Source SHA-256: {checksum}\n"
+                  f"# Git HEAD: {head}\n"
+                  f"# Source status: {status}\n"
+                  f"# Character of H'_d for 1 <= d <= {dmax}, in the Schur basis over QQ.\n"
                   "# Each line \"d<TAB>lambda<TAB>mu<TAB>c\" is the term c * s_lambda(x) s_mu(y) of ch(H'_d);\n"
                   "# partitions are comma-separated, \"-\" is the empty partition.\n")
         for d in range(1, dmax + 1):
@@ -543,6 +633,9 @@ def load_chH_prime(path):
     r"""
     Return the dictionary ``{d: chH_prime(d)}`` stored in the text file
     ``path`` by :func:`save_chH_prime`.
+
+    Values belong to ``S2`` over ``QQ``. Comment headers are ignored, so
+    tables written before provenance fields were added remain readable.
     """
     terms = {}
     with open(path) as f:

@@ -23,12 +23,30 @@ The code was tested with SageMath 10.10.
 
 ```
 sage: from relative_plethysm import *
-sage: print_poly(chH_prime(2), 'V')
+sage: character_latex(chH_prime(2), 'V')
 V_{2,21^{2}} \oplus V_{1^{2},2^{2}} \oplus V_{1^{2},1^{4}} \oplus V_{1,21} \oplus V_{1,1^{3}}^{\oplus 2} \oplus V_{\varnothing,1^{2}}^{\oplus 2}
 ```
 
 * Tests: `sage -t relative_plethysm.py` (or `python3 -m sage.doctest relative_plethysm.py` if SageMath is installed as a Python package).
 * Recomputing `chH_prime.txt`: `sage -python compute_chH_prime.py [dmax]` (or `python3 compute_chH_prime.py [dmax]`), which takes about 4 minutes for `dmax = 10`.
+
+## API conventions
+
+The helpers `omega`, `skew_by`, `expand`, and `plethysm` support tensor products whose factors are symmetric-function bases over a common coefficient ring. They also delegate to Sage's existing operations for single-alphabet inputs. Other tensor products are not treated as symmetric functions; in particular, `expand` falls back to Sage's global `expand` on those inputs.
+
+For a tensor, `expand(f, n, alphabet='xy')` uses $n$ variables in each alphabet: `x0, ..., x(n-1)` and `y0, ..., y(n-1)`. The `alphabet` argument supplies one distinct prefix per factor and can also be a list such as `['out', 'in']`. For a single symmetric function, its meaning follows Sage's `.expand()` method.
+
+The grading helpers `degree_part` and `restrict_arity` apply to two alphabets, ordered as outputs $x$ then inputs $y$, and preserve the input basis and coefficient ring. Here degree means $|\mu|-|\lambda|$, the paper's homological grading, rather than total arity $|\lambda|+|\mu|$.
+
+The character computations return elements of the fixed Schur tensor parent `S2` over `QQ`. In `chP_upto_input_arity(d, n)` and `chH_upto_input_arity(d, n)`, the degree is exactly $d$ and the input arity is at most $n$. In `chP(d, m, n)` and `chH(d, m, n)`, both arities are exact.
+
+`character_latex(f, sym='S')` converts to `S2` and returns a `LatexExpr` describing the irreducible decomposition. Direct-sum notation assumes nonnegative integer multiplicities; the function itself does not print. This replaces `print_poly`; the arity-bounded functions replace `chP_upto` and `chH_upto`.
+
+## Stored character tables
+
+`save_chH_prime(path, dmax)` computes the characters and replaces the destination file. New tables record the SageMath version, coefficient field, basis, degree range, source-file SHA-256, Git HEAD, and whether `relative_plethysm.py` differs from HEAD. If Git or a tracked checkout is unavailable, the Git fields say `unavailable` and the source hash still identifies the file. The Git status describes the source module; notebook or documentation edits do not change it.
+
+`load_chH_prime(path)` reads the coefficients as exact rationals and returns a dictionary of characters in `S2`. It ignores comment headers and therefore also accepts older tables. The checked-in degree-10 table retains its original header; its exact producing source revision was not recorded at generation time.
 
 ## Correspondence with the Mathematica code
 
@@ -54,15 +72,15 @@ Most of the Mathematica package is built into SageMath, which is used directly. 
 | `reg[n, x, y]`, `reg2[n, x, y]` | `h[n](X * Y)`, `tensor([p, p])(h[n](X * Y))` |
 | `ω[f]` | `f.omega()`, or `omega(f)` in several alphabets |
 | `coeff[d][𝓕[f, x, y]]` | `degree_part(f, d)` |
-| `printPoly[S, x, y][f]` | `print_poly(f, 'S')` (LaTeX) |
-| `chQ[d, x, y]`, `chP\[LetterSpace]upto[d, n, x, y]`, `chP[d, m, n, x, y]`, ... | `chQ(d)`, `chP_upto(d, n)`, `chP(d, m, n)`, ... |
+| `printPoly[S, x, y][f]` | `character_latex(f, 'S')` (LaTeX) |
+| `chQ[d, x, y]`, `chP\[LetterSpace]upto[d, n, x, y]`, `chP[d, m, n, x, y]`, ... | `chQ(d)`, `chP_upto_input_arity(d, n)`, `chP(d, m, n)`, ... |
 | `Get["chH_prime.mx"]` | `load_chH_prime("chH_prime.txt")` |
 
 Differences with the Mathematica version:
 
 * In `chP[d, m, n, x, y]` (hence `chH`), the truncation to output arity $m$ did not remove the terms of output arity $0$, because `s[{}, x]` evaluates to `1`. For example, `Out[48]` in `mathematica/lambda-appl.nb` wrongly contains $S_{\varnothing,1^2}^{\oplus 2}$ for $d = 2$, $n = 2$ and every $m \geq 1$. `chP(d, m, n)` and `chH(d, m, n)` are correct. The other functions agree with the outputs stored in the Mathematica notebook.
 * The characters are computed directly in degree $d$ instead of up to degree $d$, which is faster.
-* `print_poly` returns LaTeX and may order the terms differently.
+* `character_latex` returns LaTeX and may order the terms differently.
 
 [^1]: Université Paris Cité and Sorbonne Université, CNRS, IMJ-PRG, F-75013 Paris, France.
 [^2]: Institut for Matematiske Fag, Københavns Universitet, Universitetsparken 5, 2100 København Ø, Denmark
