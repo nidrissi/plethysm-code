@@ -57,6 +57,8 @@ def _tensor_factors(f):
     Return the tensor factors of the parent of ``f``, or ``None`` if ``f`` is
     not an element of a tensor product.
     """
+    if not hasattr(f, 'parent'):
+        return None
     P = f.parent()
     if isinstance(P, CombinatorialFreeModule_Tensor):
         return P.tensor_factors()
@@ -144,6 +146,8 @@ def expand(f, *args, **kwds):
         t
         sage: expand((t + 1)^2)
         t^2 + 2*t + 1
+        sage: [expand(f) for f in (int(0), int(1), float(1.5))]
+        [0, 1, 1.5]
     """
     if _tensor_factors(f) is None:
         return sage_expand(f, *args, **kwds)
@@ -180,6 +184,18 @@ def plethysm(f, *args, include=None, exclude=None):
         sage: P2(plethysm(p[2](X) * p[3](Y), p[4](X), h[2](Y)))
         1/2*p[8] # p[3, 3] + 1/2*p[8] # p[6]
 
+    Zero retains the parent of the substituted alphabets::
+
+        sage: z = plethysm(S2.zero(), X, Y)
+        sage: z.parent() is S2
+        True
+        sage: omega(z), degree_part(z, 0)
+        (0, 0)
+        sage: plethysm(S2.zero(), p[1], p[2]).parent() is p
+        True
+        sage: plethysm(P2.zero(), X, Y).parent() is S2
+        True
+
     The grading variable `\hbar` of the Mathematica code is a variable of the
     base ring::
 
@@ -196,6 +212,10 @@ def plethysm(f, *args, include=None, exclude=None):
         return f.plethysm(*args, include=include, exclude=exclude)
     if len(args) != len(factors):
         raise ValueError("arity must be equal to the number of arguments provided")
+    if not f:
+        unit = prod(B.one().plethysm(g, include=include, exclude=exclude)
+                    for B, g in zip(factors, args))
+        return f.parent().base_ring().zero() * unit
     return sum(c * prod(B.monomial(k).plethysm(g, include=include, exclude=exclude)
                         for B, k, g in zip(factors, key, args))
                for key, c in f)
