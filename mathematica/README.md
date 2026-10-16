@@ -42,5 +42,5 @@ Most of the Mathematica package is built into SageMath, which is used directly. 
 Differences with the Mathematica version:
 
 * In `chP[d, m, n, x, y]` (hence `chH`), the truncation to output arity $m$ did not remove the terms of output arity $0$, because `s[{}, x]` evaluates to `1`. For example, `Out[48]` in `lambda-appl.nb` wrongly contains $S_{\varnothing,1^2}^{\oplus 2}$ for $d = 2$, $n = 2$ and every $m \geq 1$. `chP(d, m, n)` and `chH(d, m, n)` are correct. The other functions agree with the outputs stored in the Mathematica notebook.
-* The characters are computed directly in degree $d$ instead of up to degree $d$, which is faster.
+* The characters are lazy power series in the degree $d$, computed degree by degree and cached, instead of being extracted from a computation up to degree $d$.
 * `character_latex` returns LaTeX and may order the terms differently.
