@@ -33,20 +33,62 @@ elements of ``S2 = tensor([s, s])``. As in Sage's documentation of
     s[2] # s[1, 1, 1]
     sage: tensor([p, p])(h[2](X * Y))
     1/2*p[1, 1] # p[1, 1] + 1/2*p[2] # p[2]
+
+The characters of the paper are lazy power series in a variable `t` that
+records the homological degree `d`; their coefficients are only computed
+when needed, and then cached. The functions ``chP``, ``chH``,
+``chP_upto_input_arity``, ``chP_prime``, ... read their values off these
+series.
+
+The coefficient of `t^d` in ``chQ_prime_series``, ``chP_prime_series`` and
+``chH_prime_series`` is an element of ``S2``::
+
+    sage: chH_prime_series[2] == chH_prime(2)
+    True
+
+In ``chQ_series``, ``chP_series`` and ``chH_series``, the coefficient of
+`t^d` is the character in degree `d`, which has infinitely many terms. It
+is a lazy symmetric function graded by total arity: in degree `d`, its
+component of total arity `m + n` has output arity `m` and input arity `n`::
+
+    sage: chH_series[1][3]
+    2*s[1] # s[1, 1] + s[1] # s[2]
+    sage: _ == chH(1, 1, 2)
+    True
+    sage: chH_series[2][8] == chH(2, 3, 5)
+    True
+
+Since `\mathcal{Q}` is `\mathcal{Q}'` plus `h_1(x) h_1(y)` in degree `0`,
+we have `\mathcal{H} = \Omega \cdot (1 + \mathcal{H}')` where
+`\Omega = \sum_{n \geq 0} h_n(xy)` is the Cauchy kernel::
+
+    sage: Omega = chH_series[0]
+    sage: Omega[4]
+    s[1, 1] # s[1, 1] + s[2] # s[2]
+    sage: L = Omega.parent()
+    sage: all(chH_series[d][N] == (Omega * L(chH_prime(d)))[N] for d in range(1, 4) for N in range(d, d + 7))
+    True
+
+Equality of lazy series is not decidable, so compare coefficients rather
+than series. Printing a series computes its first seven coefficients.
 """
 
 from itertools import groupby
 
-from sage.all import QQ, SymmetricFunctions, Partition, Partitions, PolynomialRing, cached_function, prod, tensor
+from sage.all import (QQ, SymmetricFunctions, LazyPowerSeriesRing, LazySymmetricFunctions, Partition,
+                      PolynomialRing, cached_function, divisors, prod, tensor)
 from sage.calculus.functional import expand as sage_expand
 from sage.combinat.free_module import CombinatorialFreeModule_Tensor
 from sage.combinat.sf.sfa import SymmetricFunctionAlgebra_generic
+from sage.data_structures.stream import Stream_function
 from sage.misc.latex import LatexExpr
+from sage.rings.lazy_series import LazyPowerSeries, LazySymmetricFunction
 
 __all__ = ["Sym", "s", "h", "e", "p", "m", "S2", "X", "Y",
            "omega", "skew_by", "expand", "plethysm",
            "degree_part", "restrict_arity",
            "chQ", "chP_upto_input_arity", "chH_upto_input_arity", "chP", "chH", "chQ_prime", "chP_prime", "chH_prime",
+           "chQ_series", "chP_series", "chH_series", "chQ_prime_series", "chP_prime_series", "chH_prime_series",
            "character_latex", "save_chH_prime", "load_chH_prime"]
 
 Sym = SymmetricFunctions(QQ)
@@ -95,6 +137,10 @@ def omega(f):
     of `M`, then ``omega(f)`` is the character of `\omega(M)`, where
     `\omega(M)(p, q) = M(p, q) \otimes \mathrm{sgn}_p \otimes \mathrm{sgn}_q`.
 
+    On lazy series, `\omega` is applied to each coefficient: to each
+    homogeneous component of a lazy symmetric function, and to each
+    coefficient of a lazy power series such as ``chP_series``.
+
     EXAMPLES::
 
         sage: omega(s[2, 1, 1])
@@ -103,7 +149,15 @@ def omega(f):
         s[1, 1] # s[3]
         sage: omega(tensor([p[2], p[3]]))
         -p[2] # p[3]
+        sage: omega(LazySymmetricFunctions(s)(lambda n: s[n]))
+        s[] + s[1] + (s[1,1]) + (s[1,1,1]) + (s[1,1,1,1]) + (s[1,1,1,1,1]) + (s[1,1,1,1,1,1]) + O^7
+        sage: omega(chQ_series)[1]
+        s[] # s[1] + s[1] # s[1, 1]
     """
+    if isinstance(f, LazyPowerSeries):
+        return f.map_coefficients(omega)
+    if isinstance(f, LazySymmetricFunction):
+        return f.parent()(lambda n: omega(f[n]), valuation=0)
     factors = _tensor_factors(f)
     if factors is None:
         return f.omega()
@@ -301,41 +355,96 @@ def restrict_arity(f, m=None, n=None, exact=True):
 
 
 # Computations
+#
+# The characters are lazy power series in a variable t recording the
+# homological degree. Their coefficients are elements of S2 (in _T), or
+# lazy symmetric functions graded by total arity (in _TL) when they have
+# infinitely many terms. Intermediate computations use power sums (_TP).
 
-def _saturation(Q, d, n=None):
+_P2 = tensor([p, p])
+_T = LazyPowerSeriesRing(S2, 't')
+_TP = LazyPowerSeriesRing(_P2, 't')
+_LS = LazySymmetricFunctions(S2)
+_LP = LazySymmetricFunctions(_P2)
+_TL = LazyPowerSeriesRing(_LS, 't')
+
+
+def _lazy_series(L, f, valuation):
     r"""
-    Return the degree `d` part of `\sum_{k \geq 0} h_k \circ (\sum_{l \geq 0} Q(l), 0)`.
+    Return the lazy power series in ``L`` whose coefficient of `t^n` is
+    ``f(n)`` for `n \geq` ``valuation``, and `0` below.
 
-    Here ``Q(l)`` is homogeneous of degree `l` and all its terms have input
-    arity at least `1`. If ``Q(0)`` is nonzero, then the sum is infinite in
-    each degree and only the terms of input arity at most `n` are computed.
+    This is ``L(f, valuation=valuation)``, which does not work here: it
+    first tries to convert ``f`` into the coefficient ring, and this raises
+    ``NotImplementedError`` for tensor products of symmetric functions.
 
-    Since `h_k \circ (A_0 + A_1 + \dots) = \sum_{k_0 + k_1 + \dots = k}
-    \prod_i h_{k_i} \circ A_i`, and since `h_{k_i} \circ A_i` has degree
-    `i k_i` and input arity at least `k_i`, the degree `d` part is the sum,
-    over partitions `\lambda` of `d` with `k_i` parts equal to `i` and over
-    `0 \leq k_0 \leq n - \ell(\lambda)`, of
-    `(h_{k_0} \circ A_0) \prod_{i \geq 1} h_{k_i} \circ A_i`.
+    TESTS::
 
-    The computation is done in the basis of power sums, where products and
-    plethysms are cheap, and the result is converted to the Schur basis.
+        sage: f = _lazy_series(_T, lambda d: d * X, 1)
+        sage: f[0], f[2]
+        (0, 2*s[1] # s[])
     """
-    P2 = tensor([p, p])
-    Q0 = P2(Q(0))
-    if Q0 and n is None:
-        raise ValueError("the input arity must be bounded when Q(0) is nonzero")
-    if Q0:
-        H0 = [h[k](Q0) for k in range(n + 1)]
-    total = P2.zero()
-    for la in Partitions(d):
-        if n is not None and len(la) > n:
-            continue
-        term = prod((h[k](P2(Q(i))) for i, k in la.to_exp_dict().items()), P2.one())
-        if Q0:
-            total += sum(H0[:n - len(la) + 1]) * term
-        else:
-            total += term
-    return S2(total)
+    return L.element_class(L, Stream_function(f, L.is_sparse(), valuation))
+
+
+def _plethystic_exp(F):
+    r"""
+    Return `\mathrm{Exp}(F) = \sum_{k \geq 0} h_k \circ F`, in the basis of
+    power sums, for the lazy power series ``F`` in `t` without its constant
+    term ``F[0]``.
+
+    The coefficients of ``F`` are symmetric functions in two alphabets. As
+    for `\hbar` in the Mathematica code, `t` is of degree one:
+    `p_k \circ (f t^d) = (p_k \circ f) t^{kd}`. Hence
+    `\mathrm{Exp}(F) = \exp(G)` where
+    `G = \sum_{k \geq 1} \frac{1}{k} p_k \circ F` has coefficients
+    `G_n = \sum_{k \mid n} \frac{1}{k} p_k \circ F_{n/k}`. Equivalently, the
+    coefficient of `t^d` is the sum, over partitions of `d` with `k_i` parts
+    equal to `i`, of `\prod_i h_{k_i} \circ F_i`.
+
+    The exponential is defined by `E = 1 + \int G' E`, which is what the
+    method ``exp`` of lazy series does, except that ``exp`` divides by
+    elements of the coefficient ring, which fails for tensor products of
+    symmetric functions. Products and plethysms are cheap in
+    the basis of power sums, and the coefficients are cached, so that each
+    degree is computed once.
+
+    TESTS::
+
+        sage: E = _plethystic_exp(chQ_prime_series)
+        sage: S2(E[0]), S2(E[1])
+        (s[] # s[], s[] # s[1] + s[1] # s[2])
+        sage: S2(E[2]) == chQ_prime(2) + h[2](chQ_prime(1))
+        True
+    """
+    G = _lazy_series(_TP, lambda n: _P2.sum(p[k](_P2(F[n // k])) / k for k in divisors(n)), 1)
+    E = _TP.undefined(valuation=0)
+    E.define(1 + (G.derivative() * E).integral())
+    return E
+
+
+def _degree_upto_input_arity(series, d, n):
+    r"""
+    Return the terms of input arity at most `n` of the coefficient of `t^d`
+    of ``series``, a lazy symmetric function graded by total arity.
+
+    In degree `d`, input arity `\leq n` means total arity `\leq 2n - d`.
+    """
+    if d < 0:
+        return S2.zero()
+    f = series[d]
+    return S2.sum(f[N] for N in range(d, 2 * n - d + 1))
+
+
+def _degree_arity(series, d, m, n):
+    r"""
+    Return the terms of output arity `m` and input arity `n` of the
+    coefficient of `t^d` of ``series``, a lazy symmetric function graded by
+    total arity.
+    """
+    if d < 0 or m < 0 or n - m != d:
+        return S2.zero()
+    return series[d][m + n]
 
 
 def chQ(d):
@@ -359,13 +468,59 @@ def chQ(d):
     return f
 
 
+def chQ_prime(d):
+    r"""
+    Return the character of `\mathcal{Q}'` in degree `d`.
+
+    EXAMPLES::
+
+        sage: H2 = tensor([h, h])
+        sage: for d in range(4): print(d, H2(chQ_prime(d)))
+        0 0
+        1 h[] # h[1] + h[1] # h[2]
+        2 h[] # h[2] + h[1] # h[3]
+        3 h[] # h[3] + h[1] # h[4]
+    """
+    f = S2.zero()
+    if d >= 1:
+        f += h[d](Y) + h[1](X) * h[d + 1](Y)
+    return f
+
+
+# The characters as lazy power series in the degree; see the module documentation.
+
+chQ_series = _lazy_series(_T, chQ, 0)
+chQ_prime_series = _lazy_series(_T, chQ_prime, 1)
+
+# P' = S(Q') - 1 and H' = omega(P').
+_chP_prime_plus_one = _plethystic_exp(chQ_prime_series)
+chP_prime_series = _lazy_series(_T, lambda d: S2(_chP_prime_plus_one[d]), 1)
+chH_prime_series = omega(chP_prime_series)
+
+# P = S(Q) = S(Q(0)) S(Q_{>0}) and H = omega(P). Here S(Q(0)) = sum_k h_k(XY)
+# has degree 0 and infinitely many arities; it is computed with Sage's lazy
+# plethysm, which is graded by total arity.
+_saturation_degree_zero = LazySymmetricFunctions(h)(lambda k: h[k], valuation=0)(_LP(_P2(chQ(0))))
+_saturation_positive_degrees = _plethystic_exp(chQ_series)
+
+
+def _chP_coefficient(d):
+    f = _saturation_degree_zero * _LP(_saturation_positive_degrees[d])
+    return _LS(lambda N: S2(f[N]), valuation=d)
+
+
+chP_series = _lazy_series(_TL, _chP_coefficient, 0)
+chH_series = omega(chP_series)
+
+
 @cached_function
 def chP_upto_input_arity(d, n):
     r"""
     Return the character of `\mathcal{P}` in degree `d`, up to input arity `n`.
 
     The degree is exactly ``d``; only the input arity is bounded by ``n``.
-    The result belongs to ``S2`` over ``QQ``.
+    The result belongs to ``S2`` over ``QQ``. It is read off the coefficient
+    ``chP_series[d]``.
 
     TESTS:
 
@@ -375,8 +530,10 @@ def chP_upto_input_arity(d, n):
         ....:                                                     for k in range(n + 1)), d), n=n, exact=False)
         ....:     for d in range(3) for n in range(4))
         True
+        sage: chP_upto_input_arity(-1, 3), chP_upto_input_arity(3, 2)
+        (0, 0)
     """
-    return restrict_arity(_saturation(chQ, d, n), n=n, exact=False)
+    return _degree_upto_input_arity(chP_series, d, n)
 
 
 @cached_function
@@ -393,8 +550,13 @@ def chH_upto_input_arity(d, n):
 
         sage: character_latex(chH_upto_input_arity(2, 5))
         S_{3,41}^{\oplus 3} \oplus S_{3,32} \oplus S_{3,31^{2}}^{\oplus 6} \oplus S_{3,2^{2}1}^{\oplus 2} \oplus S_{3,21^{3}}^{\oplus 3} \oplus S_{21,41} \oplus S_{21,32}^{\oplus 5} \oplus S_{21,31^{2}}^{\oplus 7} \oplus S_{21,2^{2}1}^{\oplus 8} \oplus S_{21,21^{3}}^{\oplus 9} \oplus S_{21,1^{5}}^{\oplus 3} \oplus S_{1^{3},32}^{\oplus 2} \oplus S_{1^{3},31^{2}} \oplus S_{1^{3},2^{2}1}^{\oplus 6} \oplus S_{1^{3},21^{3}}^{\oplus 6} \oplus S_{1^{3},1^{5}}^{\oplus 5} \oplus S_{2,31}^{\oplus 3} \oplus S_{2,2^{2}} \oplus S_{2,21^{2}}^{\oplus 6} \oplus S_{2,1^{4}}^{\oplus 2} \oplus S_{1^{2},31} \oplus S_{1^{2},2^{2}}^{\oplus 4} \oplus S_{1^{2},21^{2}}^{\oplus 5} \oplus S_{1^{2},1^{4}}^{\oplus 5} \oplus S_{1,21}^{\oplus 3} \oplus S_{1,1^{3}}^{\oplus 4} \oplus S_{\varnothing,1^{2}}^{\oplus 2}
+
+    TESTS::
+
+        sage: all(chH_upto_input_arity(d, n) == omega(chP_upto_input_arity(d, n)) for d in range(4) for n in range(7))
+        True
     """
-    return omega(chP_upto_input_arity(d, n))
+    return _degree_upto_input_arity(chH_series, d, n)
 
 
 @cached_function
@@ -410,8 +572,14 @@ def chP(d, m, n):
 
         sage: chP(2, 0, 2), chP(2, 1, 2)
         (2*s[] # s[2], 0)
+
+    TESTS::
+
+        sage: all(chP(d, m, n) == restrict_arity(chP_upto_input_arity(d, n), m, n)
+        ....:     for d in range(-1, 4) for m in range(-1, 4) for n in range(6))
+        True
     """
-    return restrict_arity(chP_upto_input_arity(d, n), m, n)
+    return _degree_arity(chP_series, d, m, n)
 
 
 @cached_function
@@ -434,26 +602,7 @@ def chH(d, m, n):
         2 4 S_{2,31}^{\oplus 3} \oplus S_{2,2^{2}} \oplus S_{2,21^{2}}^{\oplus 6} \oplus S_{2,1^{4}}^{\oplus 2} \oplus S_{1^{2},31} \oplus S_{1^{2},2^{2}}^{\oplus 4} \oplus S_{1^{2},21^{2}}^{\oplus 5} \oplus S_{1^{2},1^{4}}^{\oplus 5}
         3 5 S_{3,41}^{\oplus 3} \oplus S_{3,32} \oplus S_{3,31^{2}}^{\oplus 6} \oplus S_{3,2^{2}1}^{\oplus 2} \oplus S_{3,21^{3}}^{\oplus 3} \oplus S_{21,41} \oplus S_{21,32}^{\oplus 5} \oplus S_{21,31^{2}}^{\oplus 7} \oplus S_{21,2^{2}1}^{\oplus 8} \oplus S_{21,21^{3}}^{\oplus 9} \oplus S_{21,1^{5}}^{\oplus 3} \oplus S_{1^{3},32}^{\oplus 2} \oplus S_{1^{3},31^{2}} \oplus S_{1^{3},2^{2}1}^{\oplus 6} \oplus S_{1^{3},21^{3}}^{\oplus 6} \oplus S_{1^{3},1^{5}}^{\oplus 5}
     """
-    return omega(chP(d, m, n))
-
-
-def chQ_prime(d):
-    r"""
-    Return the character of `\mathcal{Q}'` in degree `d`.
-
-    EXAMPLES::
-
-        sage: H2 = tensor([h, h])
-        sage: for d in range(4): print(d, H2(chQ_prime(d)))
-        0 0
-        1 h[] # h[1] + h[1] # h[2]
-        2 h[] # h[2] + h[1] # h[3]
-        3 h[] # h[3] + h[1] # h[4]
-    """
-    f = S2.zero()
-    if d >= 1:
-        f += h[d](Y) + h[1](X) * h[d + 1](Y)
-    return f
+    return _degree_arity(chH_series, d, m, n)
 
 
 @cached_function
@@ -461,6 +610,8 @@ def chP_prime(d):
     r"""
     Return the character of `\mathcal{P}' = S(\mathcal{Q}')` in degree `d`,
     i.e. the degree `d` part of `\sum_{k \geq 1} h_k \circ (ch(\mathcal{Q}'), 0)`.
+
+    This is the coefficient ``chP_prime_series[d]``.
 
     EXAMPLES:
 
@@ -487,16 +638,20 @@ def chP_prime(d):
         sage: P = H(Q)
         sage: all(chP_prime(d) == sum(degree_part(S2(P[n]), d) for n in range(3 * d + 1)) for d in range(1, 4))
         True
+        sage: [chP_prime(d).parent() is S2 for d in (-1, 0, 1)]
+        [True, True, True]
     """
     if d < 1:
         return S2.zero()
-    return _saturation(chQ_prime, d)
+    return chP_prime_series[d]
 
 
 @cached_function
 def chH_prime(d):
     r"""
     Return the character of `\mathcal{H}' = \omega(\mathcal{P}')` in degree `d`.
+
+    This is the coefficient ``chH_prime_series[d]``.
 
     EXAMPLES:
 
@@ -514,7 +669,9 @@ def chH_prime(d):
         sage: [sum(chH_prime(d).coefficients()) for d in range(1, 6)]
         [2, 8, 34, 152, 720]
     """
-    return omega(chP_prime(d))
+    if d < 1:
+        return S2.zero()
+    return chH_prime_series[d]
 
 
 # Pretty printing
