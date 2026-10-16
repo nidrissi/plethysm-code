@@ -43,7 +43,7 @@ The characters are also lazy power series in a variable $t$ recording the degree
 * `chQ_prime_series`, `chP_prime_series`, `chH_prime_series`: the coefficient of $t^d$ is an element of `S2`, e.g. `chH_prime_series[d] == chH_prime(d)`.
 * `chQ_series`, `chP_series`, `chH_series`: the coefficient of $t^d$ has infinitely many terms. It is a lazy symmetric function (`LazySymmetricFunctions(S2)`) graded by total arity $m+n$; in degree $d$, its component of total arity $m+n$ has output arity $m$ and input arity $n$. For example, `chH_series[d][m + n] == chH(d, m, n)` when $n - m = d$.
 
-`omega` also applies to lazy series, coefficientwise. Equality of lazy series is not decidable, so compare coefficients rather than series. Printing a series computes its first seven coefficients, for example degrees up to 6 for `chH_prime_series`.
+`omega` also applies to lazy series, coefficientwise. Equality of lazy series is not decidable, so compare coefficients rather than series. Printing a series computes its first seven coefficients, for example degrees 1 to 7 for `chH_prime_series`, which takes a few seconds.
 
 Since $\mathcal{Q}$ is $\mathcal{Q}'$ plus $h_1(x)h_1(y)$ in degree $0$, we have $\mathrm{ch}(\mathcal{H}) = \Omega \cdot (1 + \mathrm{ch}(\mathcal{H}'))$, where $\Omega = \sum_{n} h_n(xy)$ is the Cauchy kernel; it is `chH_series[0]`.
 
