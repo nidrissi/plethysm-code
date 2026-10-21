@@ -36,6 +36,17 @@ The character computations return elements of the fixed Schur tensor parent `S2`
 
 `character_latex(f, sym='S')` converts to `S2` and returns a `LatexExpr` describing the irreducible decomposition. Direct-sum notation assumes nonnegative integer multiplicities; the function itself does not print. This replaces `print_poly`; the arity-bounded functions replace `chP_upto` and `chH_upto`.
 
+## Lazy series
+
+The characters are also lazy power series in a variable $t$ recording the degree $d$. Their coefficients are computed only when needed, then cached. The character functions (`chP`, `chH`, `chP_upto_input_arity`, `chP_prime`, ...) read their values off these series.
+
+* `chQ_series`, `chQ_prime_series`, `chP_prime_series`, `chH_prime_series`: the coefficient of $t^d$ is a finite element of `S2`, e.g. `chQ_series[d] == chQ(d)` and `chH_prime_series[d] == chH_prime(d)`. Use `restrict_arity` to select arities: `restrict_arity(chQ_series[1], m=1, n=2)` returns `s[1] # s[2]`.
+* `chP_series`, `chH_series`: the coefficient of $t^d$ has infinitely many terms. It is a lazy symmetric function (`LazySymmetricFunctions(S2)`) graded by total arity $m+n$; in degree $d$, its component of total arity $m+n$ has output arity $m$ and input arity $n$. For example, `chH_series[d][m + n] == chH(d, m, n)` when $n - m = d$.
+
+`omega` also applies to lazy series, coefficientwise. Equality of lazy series is not decidable, so compare coefficients rather than series. Printing a series computes its first seven coefficients, for example degrees 1 to 7 for `chH_prime_series`, which takes a few seconds.
+
+Since $\mathcal{Q}$ is $\mathcal{Q}'$ plus $h_1(x)h_1(y)$ in degree $0$, we have $\mathrm{ch}(\mathcal{H}) = \Omega \cdot (1 + \mathrm{ch}(\mathcal{H}'))$, where $\Omega = \sum_{n} h_n(xy)$ is the Cauchy kernel; it is `chH_series[0]`.
+
 ## Stored character tables
 
 `save_chH_prime(path, dmax)` computes the characters and replaces the destination file. New tables record the SageMath version, coefficient field, basis, degree range, source-file SHA-256, Git HEAD, and whether `relative_plethysm.py` differs from HEAD. If Git or a tracked checkout is unavailable, the Git fields say `unavailable` and the source hash still identifies the file. The Git status describes the source module; notebook or documentation edits do not change it.
