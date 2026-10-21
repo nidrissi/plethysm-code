@@ -40,8 +40,8 @@ The character computations return elements of the fixed Schur tensor parent `S2`
 
 The characters are also lazy power series in a variable $t$ recording the degree $d$. Their coefficients are computed only when needed, then cached. The character functions (`chP`, `chH`, `chP_upto_input_arity`, `chP_prime`, ...) read their values off these series.
 
-* `chQ_prime_series`, `chP_prime_series`, `chH_prime_series`: the coefficient of $t^d$ is an element of `S2`, e.g. `chH_prime_series[d] == chH_prime(d)`.
-* `chQ_series`, `chP_series`, `chH_series`: the coefficient of $t^d$ has infinitely many terms. It is a lazy symmetric function (`LazySymmetricFunctions(S2)`) graded by total arity $m+n$; in degree $d$, its component of total arity $m+n$ has output arity $m$ and input arity $n$. For example, `chH_series[d][m + n] == chH(d, m, n)` when $n - m = d$.
+* `chQ_series`, `chQ_prime_series`, `chP_prime_series`, `chH_prime_series`: the coefficient of $t^d$ is a finite element of `S2`, e.g. `chQ_series[d] == chQ(d)` and `chH_prime_series[d] == chH_prime(d)`. Use `restrict_arity` to select arities: `restrict_arity(chQ_series[1], m=1, n=2)` returns `s[1] # s[2]`.
+* `chP_series`, `chH_series`: the coefficient of $t^d$ has infinitely many terms. It is a lazy symmetric function (`LazySymmetricFunctions(S2)`) graded by total arity $m+n$; in degree $d$, its component of total arity $m+n$ has output arity $m$ and input arity $n$. For example, `chH_series[d][m + n] == chH(d, m, n)` when $n - m = d$.
 
 `omega` also applies to lazy series, coefficientwise. Equality of lazy series is not decidable, so compare coefficients rather than series. Printing a series computes its first seven coefficients, for example degrees 1 to 7 for `chH_prime_series`, which takes a few seconds.
 

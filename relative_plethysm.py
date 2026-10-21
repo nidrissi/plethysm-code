@@ -40,13 +40,18 @@ when needed, and then cached. The functions ``chP``, ``chH``,
 ``chP_upto_input_arity``, ``chP_prime``, ... read their values off these
 series.
 
-The coefficient of `t^d` in ``chQ_prime_series``, ``chP_prime_series`` and
-``chH_prime_series`` is an element of ``S2``::
+The coefficient of `t^d` in ``chQ_series``, ``chQ_prime_series``,
+``chP_prime_series`` and ``chH_prime_series`` is a finite element of ``S2``.
+Use ``restrict_arity`` to select its arities::
 
+    sage: chQ_series[1] == chQ(1)
+    True
+    sage: restrict_arity(chQ_series[1], m=1, n=2)
+    s[1] # s[2]
     sage: chH_prime_series[2] == chH_prime(2)
     True
 
-In ``chQ_series``, ``chP_series`` and ``chH_series``, the coefficient of
+In ``chP_series`` and ``chH_series``, the coefficient of
 `t^d` is the character in degree `d`, which has infinitely many terms. It
 is a lazy symmetric function graded by total arity: in degree `d`, its
 component of total arity `m + n` has output arity `m` and input arity `n`::
@@ -153,10 +158,23 @@ def omega(f):
         s[] + s[1] + (s[1,1]) + (s[1,1,1]) + (s[1,1,1,1]) + (s[1,1,1,1,1]) + (s[1,1,1,1,1,1]) + O^7
         sage: omega(chQ_series)[1]
         s[] # s[1] + s[1] # s[1, 1]
+
+    TESTS:
+
+    Known zero stays exact, with infinite valuation::
+
+        sage: L = LazySymmetricFunctions(S2)
+        sage: z = omega(L.zero())
+        sage: z is L.zero(), z.is_zero(), z.valuation()
+        (True, True, +Infinity)
+        sage: omega(LazySymmetricFunctions(s).zero()).is_trivial_zero()
+        True
     """
     if isinstance(f, LazyPowerSeries):
         return f.map_coefficients(omega)
     if isinstance(f, LazySymmetricFunction):
+        if f.is_trivial_zero():
+            return f.parent().zero()
         return f.parent()(lambda n: omega(f[n]), valuation=0)
     factors = _tensor_factors(f)
     if factors is None:
@@ -429,8 +447,16 @@ def _degree_upto_input_arity(series, d, n):
     of ``series``, a lazy symmetric function graded by total arity.
 
     In degree `d`, input arity `\leq n` means total arity `\leq 2n - d`.
+
+    TESTS:
+
+    Impossible bounds return zero without evaluating the series::
+
+        sage: uncomputed = _TL.undefined()
+        sage: _degree_upto_input_arity(uncomputed, 20, 0) is S2.zero()
+        True
     """
-    if d < 0:
+    if d < 0 or n < d:
         return S2.zero()
     f = series[d]
     return S2.sum(f[N] for N in range(d, 2 * n - d + 1))
@@ -532,6 +558,8 @@ def chP_upto_input_arity(d, n):
         True
         sage: chP_upto_input_arity(-1, 3), chP_upto_input_arity(3, 2)
         (0, 0)
+        sage: chP_upto_input_arity(20, 0) is S2.zero()
+        True
     """
     return _degree_upto_input_arity(chP_series, d, n)
 
@@ -554,6 +582,8 @@ def chH_upto_input_arity(d, n):
     TESTS::
 
         sage: all(chH_upto_input_arity(d, n) == omega(chP_upto_input_arity(d, n)) for d in range(4) for n in range(7))
+        True
+        sage: chH_upto_input_arity(20, 0) is S2.zero()
         True
     """
     return _degree_upto_input_arity(chH_series, d, n)
